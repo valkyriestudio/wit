@@ -1,4 +1,4 @@
-Yags - Yet Another Git Service
+Wit
 ---
 
 TODO
