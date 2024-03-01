@@ -1,4 +1,4 @@
-FROM rust:1.76.0-slim AS prep
+FROM registry.docker.com/library/rust:1.76.0 AS prep
 WORKDIR /usr/src/myapp
 RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
    && apt-get -y install clang lld \
