@@ -8,7 +8,7 @@ FROM prep AS build
 COPY . .
 RUN cargo build --release
 
-FROM debian:slim AS base
+FROM registry.docker.com/library/debian:12-slim AS base
 WORKDIR /app
 EXPOSE 3000
 ENV RUST_LOG=info
