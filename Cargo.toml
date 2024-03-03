@@ -7,13 +7,13 @@ edition = "2021"
 
 [dependencies]
 axum = "0.7.4"
-env_logger = "0.11.2"
-mimalloc = { version = "0.1.39", default-features = false }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0.114"
-tokio = { version = "1.0", features = ["full"] }
-tracing = "0.1"
 chrono = "0.4.34"
-tower = { version = "0.4", features = ["full"] }
-tower-http = { version = "0.5.2", features = ["trace"] }
+env_logger = "0.11.2"
 git2 = "0.18.2"
+mimalloc = { version = "0.1.39", default-features = false }
+serde = { version = "1.0.197", features = ["derive"] }
+serde_json = "1.0.114"
+tokio = { version = "1.36.0", features = ["full"] }
+tower = { version = "0.4.13", features = ["full"] }
+tower-http = { version = "0.5.2", features = ["trace"] }
+tracing = "0.1.40"
