@@ -1,1 +1,1 @@
-mod git;
+pub(crate) mod git;

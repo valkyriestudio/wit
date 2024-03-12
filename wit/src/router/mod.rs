@@ -1,3 +1,4 @@
+mod api;
 mod git;
 mod health_check;
 
@@ -18,6 +19,7 @@ use tower_http::{
 
 pub(crate) fn create_app() -> Router {
     Router::new()
+        .nest("/api/v1", Router::new().nest("/git", api::router()))
         .nest("/git", git::router())
         .layer(
             ServiceBuilder::new()
