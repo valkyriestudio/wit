@@ -95,5 +95,7 @@ async fn list_tag() -> ApiResult<Json<Vec<GitTag>>> {
 }
 
 async fn list_tree() -> ApiResult<Json<Vec<GitTree>>> {
-    Ok(Json(GitRepository::open(".")?.list_tree()?))
+    Ok(Json(
+        GitRepository::open(".")?.list_tree(Default::default())?,
+    ))
 }

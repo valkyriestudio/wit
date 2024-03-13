@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width">
+        <title>wit</title>
+    </head>
+    <body>
+        <div>
+        {%- for item in data %}
+            {%- if let Some(crate::service::git::model::GitObjectType(git2::ObjectType::Tree)) = item.kind %}
+            <div><a href="/git/tree/{{ item.root|e }}{{ item.name|e }}">{{ item.name|e }}/</a></div>
+            {%- else %}
+            <div>{{ item.name|e }}</div>
+            {%- endif %}
+        {%- endfor %}
+        </div>
+    </body>
+</html>

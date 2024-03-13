@@ -3,7 +3,7 @@ pub(crate) mod model;
 
 use std::path::Path;
 
-use git2::{ErrorClass, ErrorCode, Repository, TreeWalkMode, TreeWalkResult};
+use git2::{ErrorClass, ErrorCode, ObjectType, Repository, TreeWalkMode, TreeWalkResult};
 use time::{OffsetDateTime, UtcOffset};
 
 pub(crate) use self::error::{GitError, GitResult};
@@ -165,20 +165,57 @@ impl GitRepository {
         Ok(vec)
     }
 
-    pub(crate) fn list_tree(&self) -> GitResult<Vec<GitTree>> {
+    pub(crate) fn list_tree(&self, path: String) -> GitResult<Vec<GitTree>> {
+        let path = path.strip_suffix('/').map(str::to_string).unwrap_or(path);
         let mut vec = vec![];
         let commit = self.repo.head()?.peel_to_commit()?;
         commit
             .tree()
             .unwrap()
             .walk(TreeWalkMode::PreOrder, |root, entry| {
-                vec.push(GitTree {
-                    filemode: entry.filemode(),
-                    id: entry.id().into(),
-                    kind: entry.kind().map(Into::into),
-                    name: entry.name_bytes().into(),
-                    root: root.to_owned(),
-                });
+                if path.is_empty() {
+                    vec.push(GitTree {
+                        filemode: entry.filemode(),
+                        id: entry.id().into(),
+                        kind: entry.kind().map(Into::into),
+                        name: entry.name_bytes().into(),
+                        root: root.to_owned(),
+                    });
+                    if let Some(ObjectType::Tree) = entry.kind() {
+                        return TreeWalkResult::Skip;
+                    }
+                    return TreeWalkResult::Ok;
+                }
+                let curr = format!("{root}{}", entry.name().unwrap_or_default());
+                if path.eq(&curr) {
+                    if let Some(ObjectType::Tree) = entry.kind() {
+                        if let Ok(tree) = self.repo.find_tree(entry.id()) {
+                            for entry in tree.iter() {
+                                vec.push(GitTree {
+                                    filemode: entry.filemode(),
+                                    id: entry.id().into(),
+                                    kind: entry.kind().map(Into::into),
+                                    name: entry.name_bytes().into(),
+                                    root: format!("{curr}/"),
+                                });
+                            }
+                        }
+                    } else {
+                        vec.push(GitTree {
+                            filemode: entry.filemode(),
+                            id: entry.id().into(),
+                            kind: entry.kind().map(Into::into),
+                            name: entry.name_bytes().into(),
+                            root: root.to_owned(),
+                        });
+                    }
+                    return TreeWalkResult::Abort;
+                }
+                if let Some(ObjectType::Tree) = entry.kind() {
+                    if !path.starts_with(&format!("{curr}/")) {
+                        return TreeWalkResult::Skip;
+                    }
+                }
                 TreeWalkResult::Ok
             })
             .unwrap_or_default();
@@ -319,16 +356,26 @@ mod tests {
 
     #[test]
     fn test_list_tree() {
-        let sample = [".."];
-        for path in sample.into_iter() {
-            let entries = GitRepository::open("..")
-                .unwrap_or_else(|e| panic!("{path:?} should be a valid git repo: {e:?}"))
-                .list_tree()
+        let sample = [
+            ("..", Default::default(), Default::default()),
+            ("..", String::from("wit"), String::from("wit/")),
+            ("..", String::from("wit/"), String::from("wit/")),
+            (
+                "..",
+                String::from("wit/src/main.rs"),
+                String::from("wit/src/"),
+            ),
+        ];
+        for (repo, path, root) in sample.into_iter() {
+            let entries = GitRepository::open(repo)
+                .unwrap_or_else(|e| panic!("{repo:?} should be a valid git repo: {e:?}"))
+                .list_tree(path)
                 .unwrap_or_else(|e| {
-                    panic!("list_tree in git repo {path:?} should not fail: {e:?}")
+                    panic!("list_tree in git repo {repo:?} should not fail: {e:?}")
                 });
             for item in entries.iter() {
                 println!("{item:?}");
+                assert_eq!(item.root, root, "unexpected root of tree entry");
             }
         }
     }
