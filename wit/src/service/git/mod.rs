@@ -3,13 +3,13 @@ pub(crate) mod model;
 
 use std::path::Path;
 
-use git2::{ErrorClass, ErrorCode, ObjectType, Repository, TreeWalkMode, TreeWalkResult};
+use git2::{ErrorClass, ErrorCode, ObjectType, Oid, Repository, TreeWalkMode, TreeWalkResult};
 use time::{OffsetDateTime, UtcOffset};
 
 pub(crate) use self::error::{GitError, GitResult};
 use self::model::{
-    GitBranch, GitCommit, GitIndex, GitReference, GitRemote, GitStatus, GitTag, GitTree,
-    GitUpstream,
+    GitBlob, GitBlobContent, GitBranch, GitCommit, GitIndex, GitOid, GitReference, GitRemote,
+    GitStatus, GitTag, GitTree, GitUpstream,
 };
 
 pub(crate) struct GitRepository {
@@ -36,6 +36,26 @@ impl GitRepository {
             .collect())
     }
 
+    pub(crate) fn get_blob(&self, oid: GitOid) -> GitResult<GitBlob> {
+        Ok(self.repo.find_blob(oid.0).map(|b| {
+            let content = match b.is_binary() {
+                true => GitBlobContent::Binary(b.content().to_owned()),
+                false => GitBlobContent::Text(b.content().into()),
+            };
+            GitBlob {
+                content,
+                id: b.id().into(),
+                is_binary: b.is_binary(),
+                short_id: b
+                    .as_object()
+                    .short_id()
+                    .map(|s| s.as_str().map(str::to_string).unwrap_or_default())
+                    .unwrap_or_default(),
+                size: b.size(),
+            }
+        })?)
+    }
+
     pub(crate) fn list_branch(&self) -> GitResult<Vec<GitBranch>> {
         Ok(self
             .repo
@@ -51,7 +71,18 @@ impl GitRepository {
                     .as_ref()
                     .unwrap_or(b.get())
                     .target()
-                    .map(Into::into),
+                    .unwrap_or(Oid::zero())
+                    .into(),
+                target_short: b
+                    .get()
+                    .peel_to_commit()
+                    .map(|c| {
+                        c.as_object()
+                            .short_id()
+                            .map(|s| s.as_str().map(str::to_string).unwrap_or_default())
+                            .unwrap_or_default()
+                    })
+                    .unwrap_or_default(),
                 upstream: b
                     .upstream()
                     .map(|u| {
@@ -64,7 +95,18 @@ impl GitRepository {
                                 .as_ref()
                                 .unwrap_or(u.get())
                                 .target()
-                                .map(Into::into),
+                                .unwrap_or(Oid::zero())
+                                .into(),
+                            target_short: u
+                                .get()
+                                .peel_to_commit()
+                                .map(|c| {
+                                    c.as_object()
+                                        .short_id()
+                                        .map(|s| s.as_str().map(str::to_string).unwrap_or_default())
+                                        .unwrap_or_default()
+                                })
+                                .unwrap_or_default(),
                         })
                     })
                     .unwrap_or_default(),
@@ -84,6 +126,11 @@ impl GitRepository {
                         committer: commit.committer().into(),
                         id: commit.id().into(),
                         message: commit.message_bytes().into(),
+                        short_id: commit
+                            .as_object()
+                            .short_id()
+                            .map(|s| s.as_str().map(str::to_string).unwrap_or_default())
+                            .unwrap_or_default(),
                         time: OffsetDateTime::from_unix_timestamp(commit.time().seconds())
                             .unwrap_or(OffsetDateTime::UNIX_EPOCH)
                             .to_offset(
@@ -115,6 +162,15 @@ impl GitRepository {
                 mode: i.mode,
                 mtime: i.mtime.seconds(),
                 path: i.path.as_slice().into(),
+                short_id: self
+                    .repo
+                    .find_object(i.id, None)
+                    .map(|c| {
+                        c.short_id()
+                            .map(|s| s.as_str().map(str::to_string).unwrap_or_default())
+                            .unwrap_or_default()
+                    })
+                    .unwrap_or_default(),
                 uid: i.uid,
             })
             .collect())
@@ -129,7 +185,22 @@ impl GitRepository {
                 kind: r.kind().map(Into::into),
                 name: r.name_bytes().into(),
                 shorthand: r.shorthand_bytes().into(),
-                target: r.resolve().unwrap_or(r).target().map(Into::into),
+                target: r
+                    .resolve()
+                    .as_ref()
+                    .unwrap_or(&r)
+                    .target()
+                    .unwrap_or(Oid::zero())
+                    .into(),
+                target_short: r
+                    .peel_to_commit()
+                    .map(|c| {
+                        c.as_object()
+                            .short_id()
+                            .map(|s| s.as_str().map(str::to_string).unwrap_or_default())
+                            .unwrap_or_default()
+                    })
+                    .unwrap_or_default(),
             })
             .collect())
     }
@@ -158,6 +229,15 @@ impl GitRepository {
                     name: name.into(),
                     shorthand: r.shorthand_bytes().into(),
                     target: id.into(),
+                    target_short: r
+                        .peel_to_commit()
+                        .map(|c| {
+                            c.as_object()
+                                .short_id()
+                                .map(|s| s.as_str().map(str::to_string).unwrap_or_default())
+                                .unwrap_or_default()
+                        })
+                        .unwrap_or_default(),
                 });
             }
             true
@@ -165,8 +245,8 @@ impl GitRepository {
         Ok(vec)
     }
 
-    pub(crate) fn list_tree(&self, path: String) -> GitResult<Vec<GitTree>> {
-        let path = path.strip_suffix('/').map(str::to_string).unwrap_or(path);
+    pub(crate) fn list_tree(&self, path: &str) -> GitResult<Vec<GitTree>> {
+        let path = path.strip_suffix('/').unwrap_or(path);
         let mut vec = vec![];
         let commit = self.repo.head()?.peel_to_commit()?;
         commit
@@ -180,6 +260,14 @@ impl GitRepository {
                         kind: entry.kind().map(Into::into),
                         name: entry.name_bytes().into(),
                         root: root.to_owned(),
+                        short_id: entry
+                            .to_object(&self.repo)
+                            .map(|o| {
+                                o.short_id()
+                                    .map(|s| s.as_str().map(str::to_string).unwrap_or_default())
+                                    .unwrap_or_default()
+                            })
+                            .unwrap_or_default(),
                     });
                     if let Some(ObjectType::Tree) = entry.kind() {
                         return TreeWalkResult::Skip;
@@ -197,6 +285,18 @@ impl GitRepository {
                                     kind: entry.kind().map(Into::into),
                                     name: entry.name_bytes().into(),
                                     root: format!("{curr}/"),
+                                    short_id: entry
+                                        .to_object(&self.repo)
+                                        .map(|o| {
+                                            o.short_id()
+                                                .map(|s| {
+                                                    s.as_str()
+                                                        .map(str::to_string)
+                                                        .unwrap_or_default()
+                                                })
+                                                .unwrap_or_default()
+                                        })
+                                        .unwrap_or_default(),
                                 });
                             }
                         }
@@ -207,6 +307,14 @@ impl GitRepository {
                             kind: entry.kind().map(Into::into),
                             name: entry.name_bytes().into(),
                             root: root.to_owned(),
+                            short_id: entry
+                                .to_object(&self.repo)
+                                .map(|o| {
+                                    o.short_id()
+                                        .map(|s| s.as_str().map(str::to_string).unwrap_or_default())
+                                        .unwrap_or_default()
+                                })
+                                .unwrap_or_default(),
                         });
                     }
                     return TreeWalkResult::Abort;
@@ -231,7 +339,7 @@ impl GitRepository {
             .map(|r| GitRepository { repo: r })
             .map_err(|e| match (e.class(), e.code()) {
                 (ErrorClass::Os | ErrorClass::Repository, ErrorCode::NotFound) => {
-                    GitError::RepositoryNotFound(path.clone())
+                    GitError::RepositoryNotFound(path)
                 }
                 _ => e.into(),
             })
@@ -241,6 +349,8 @@ impl GitRepository {
 #[cfg(test)]
 mod tests {
     use std::ffi::OsStr;
+
+    use git2::Oid;
 
     use super::*;
 
@@ -256,6 +366,31 @@ mod tests {
                 });
             for item in entries.iter() {
                 println!("{item:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_get_blob() {
+        let sample = [".."];
+        for path in sample.into_iter() {
+            GitRepository::open("..")
+                .unwrap_or_else(|e| panic!("{path:?} should be a valid git repo: {e:?}"))
+                .get_blob(GitOid(Oid::zero()))
+                .expect_err("get_blob(all zero Oid) in git repo {path:?} is expected to fail");
+        }
+        let sample = [("..", "LICENSE")];
+        for (path, tree) in sample.into_iter() {
+            let repo = GitRepository::open(path)
+                .unwrap_or_else(|e| panic!("{path:?} should be a valid git repo: {e:?}"));
+            let entries = repo.list_tree(tree).unwrap_or_else(|e| {
+                panic!("list_tree in git repo {path:?} should not fail: {e:?}")
+            });
+            for item in entries.into_iter() {
+                let blob = repo.get_blob(item.id).unwrap_or_else(|e| {
+                    panic!("get_blob in git repo {path:?} should not fail: {e:?}")
+                });
+                println!("{blob:?}");
             }
         }
     }
@@ -358,20 +493,16 @@ mod tests {
     fn test_list_tree() {
         let sample = [
             ("..", Default::default(), Default::default()),
-            ("..", String::from("wit"), String::from("wit/")),
-            ("..", String::from("wit/"), String::from("wit/")),
-            (
-                "..",
-                String::from("wit/src/main.rs"),
-                String::from("wit/src/"),
-            ),
+            ("..", "wit", String::from("wit/")),
+            ("..", "wit/", String::from("wit/")),
+            ("..", "wit/src/main.rs", String::from("wit/src/")),
         ];
-        for (repo, path, root) in sample.into_iter() {
-            let entries = GitRepository::open(repo)
-                .unwrap_or_else(|e| panic!("{repo:?} should be a valid git repo: {e:?}"))
-                .list_tree(path)
+        for (path, tree, root) in sample.into_iter() {
+            let entries = GitRepository::open(path)
+                .unwrap_or_else(|e| panic!("{path:?} should be a valid git repo: {e:?}"))
+                .list_tree(tree)
                 .unwrap_or_else(|e| {
-                    panic!("list_tree in git repo {repo:?} should not fail: {e:?}")
+                    panic!("list_tree in git repo {path:?} should not fail: {e:?}")
                 });
             for item in entries.iter() {
                 println!("{item:?}");

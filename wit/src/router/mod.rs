@@ -1,4 +1,6 @@
 mod api;
+mod assets;
+mod front;
 mod git;
 mod health_check;
 
@@ -17,10 +19,20 @@ use tower_http::{
     LatencyUnit, ServiceBuilderExt,
 };
 
+#[derive(Clone)]
+struct AppState {
+    repo_root: String,
+}
+
 pub(crate) fn create_app() -> Router {
+    let state = AppState {
+        repo_root: std::env::var("WIT_REPO_ROOT").unwrap_or(String::from(".")),
+    };
+
     Router::new()
         .nest("/api/v1", Router::new().nest("/git", api::router()))
         .nest("/git", git::router())
+        .with_state(state)
         .layer(
             ServiceBuilder::new()
                 .layer(CatchPanicLayer::new())
@@ -46,6 +58,13 @@ pub(crate) fn create_app() -> Router {
                 .layer(CompressionLayer::new())
                 .layer(CorsLayer::permissive())
                 .layer(TimeoutLayer::new(Duration::from_secs(30))),
+        )
+        .merge(assets::router())
+        .merge(front::router())
+        .layer(
+            ServiceBuilder::new()
+                .layer(CompressionLayer::new())
+                .layer(CorsLayer::permissive()),
         )
         .merge(health_check::router())
 }

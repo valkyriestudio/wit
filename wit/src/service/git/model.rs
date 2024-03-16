@@ -1,13 +1,38 @@
 use git2::{BranchType, ObjectType, Oid, ReferenceType, Signature, Status};
-use serde::{Serialize, Serializer};
+use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
 use time::OffsetDateTime;
+
+#[derive(Debug, Serialize)]
+pub(crate) struct GitBlob {
+    pub(crate) content: GitBlobContent,
+    pub(crate) id: GitOid,
+    pub(crate) is_binary: bool,
+    pub(crate) short_id: String,
+    pub(crate) size: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) enum GitBlobContent {
+    Binary(Vec<u8>),
+    Text(MaybeLossyUtf8),
+}
+
+impl std::fmt::Display for GitBlobContent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GitBlobContent::Binary(data) => write!(f, "{data:X?}"),
+            GitBlobContent::Text(data) => data.fmt(f),
+        }
+    }
+}
 
 #[derive(Debug, Serialize)]
 pub(crate) struct GitBranch {
     pub(crate) kind: GitBranchType,
     pub(crate) name: MaybeLossyUtf8,
     pub(crate) shorthand: MaybeLossyUtf8,
-    pub(crate) target: Option<GitOid>,
+    pub(crate) target: GitOid,
+    pub(crate) target_short: String,
     pub(crate) upstream: Option<GitUpstream>,
 }
 
@@ -35,6 +60,7 @@ pub(crate) struct GitCommit {
     pub(crate) committer: GitSignature,
     pub(crate) id: GitOid,
     pub(crate) message: MaybeLossyUtf8,
+    pub(crate) short_id: String,
     pub(crate) time: OffsetDateTime,
 }
 
@@ -47,6 +73,7 @@ pub(crate) struct GitIndex {
     pub(crate) mode: u32,
     pub(crate) mtime: i32,
     pub(crate) path: MaybeLossyUtf8,
+    pub(crate) short_id: String,
     pub(crate) uid: u32,
 }
 
@@ -68,12 +95,52 @@ impl Serialize for GitObjectType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct GitOid(pub(crate) Oid);
+
+impl std::fmt::Display for GitOid {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 impl From<Oid> for GitOid {
     fn from(id: Oid) -> Self {
         GitOid(id)
+    }
+}
+
+struct GitOidVisitor;
+
+impl<'de> Visitor<'de> for GitOidVisitor {
+    type Value = GitOid;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a hex-formatted string")
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        match Oid::from_str(value) {
+            Ok(oid) => Ok(GitOid(oid)),
+            Err(e) => Err(E::custom(format!(
+                "{:?} {:?}: {}",
+                e.class(),
+                e.code(),
+                e.message()
+            ))),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for GitOid {
+    fn deserialize<D>(deserializer: D) -> Result<GitOid, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_str(GitOidVisitor)
     }
 }
 
@@ -91,7 +158,8 @@ pub(crate) struct GitReference {
     pub(crate) kind: Option<GitReferenceType>,
     pub(crate) name: MaybeLossyUtf8,
     pub(crate) shorthand: MaybeLossyUtf8,
-    pub(crate) target: Option<GitOid>,
+    pub(crate) target: GitOid,
+    pub(crate) target_short: String,
 }
 
 #[derive(Debug)]
@@ -167,6 +235,7 @@ pub(crate) struct GitTag {
     pub(crate) name: MaybeLossyUtf8,
     pub(crate) shorthand: MaybeLossyUtf8,
     pub(crate) target: GitOid,
+    pub(crate) target_short: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -176,13 +245,15 @@ pub(crate) struct GitTree {
     pub(crate) kind: Option<GitObjectType>,
     pub(crate) name: MaybeLossyUtf8,
     pub(crate) root: String,
+    pub(crate) short_id: String,
 }
 
 #[derive(Debug, Serialize)]
 pub(crate) struct GitUpstream {
     pub(crate) name: MaybeLossyUtf8,
     pub(crate) shorthand: MaybeLossyUtf8,
-    pub(crate) target: Option<GitOid>,
+    pub(crate) target: GitOid,
+    pub(crate) target_short: String,
 }
 
 #[derive(Debug, Default, Serialize)]

@@ -1,4 +1,5 @@
 use axum::{
+    extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::get,
@@ -7,9 +8,14 @@ use axum::{
 use serde::Serialize;
 
 use crate::service::git::{
-    model::{GitBranch, GitCommit, GitIndex, GitReference, GitRemote, GitStatus, GitTag, GitTree},
+    model::{
+        GitBlob, GitBranch, GitCommit, GitIndex, GitOid, GitReference, GitRemote, GitStatus,
+        GitTag, GitTree,
+    },
     GitError, GitRepository,
 };
+
+use super::AppState;
 
 pub(crate) type ApiResult<T> = Result<T, ApiError>;
 
@@ -54,9 +60,10 @@ struct ErrorResponse {
     message: String,
 }
 
-pub(crate) fn router() -> Router {
+pub(crate) fn router() -> Router<AppState> {
     Router::new()
         .route("/status", get(gather_status))
+        .route("/blob/:id", get(get_blob))
         .route("/branch", get(list_branch))
         .route("/commit", get(list_commit))
         .route("/index", get(list_index))
@@ -66,36 +73,45 @@ pub(crate) fn router() -> Router {
         .route("/tree", get(list_tree))
 }
 
-async fn gather_status() -> ApiResult<Json<Vec<GitStatus>>> {
-    Ok(Json(GitRepository::open(".")?.gather_status()?))
+async fn gather_status(State(state): State<AppState>) -> ApiResult<Json<Vec<GitStatus>>> {
+    Ok(Json(GitRepository::open(state.repo_root)?.gather_status()?))
 }
 
-async fn list_branch() -> ApiResult<Json<Vec<GitBranch>>> {
-    Ok(Json(GitRepository::open(".")?.list_branch()?))
+async fn get_blob(
+    State(state): State<AppState>,
+    Path(id): Path<GitOid>,
+) -> ApiResult<Json<GitBlob>> {
+    Ok(Json(GitRepository::open(state.repo_root)?.get_blob(id)?))
 }
 
-async fn list_commit() -> ApiResult<Json<Vec<GitCommit>>> {
-    Ok(Json(GitRepository::open(".")?.list_commit()?))
+async fn list_branch(State(state): State<AppState>) -> ApiResult<Json<Vec<GitBranch>>> {
+    Ok(Json(GitRepository::open(state.repo_root)?.list_branch()?))
 }
 
-async fn list_index() -> ApiResult<Json<Vec<GitIndex>>> {
-    Ok(Json(GitRepository::open(".")?.list_index()?))
+async fn list_commit(State(state): State<AppState>) -> ApiResult<Json<Vec<GitCommit>>> {
+    Ok(Json(GitRepository::open(state.repo_root)?.list_commit()?))
 }
 
-async fn list_reference() -> ApiResult<Json<Vec<GitReference>>> {
-    Ok(Json(GitRepository::open(".")?.list_reference()?))
+async fn list_index(State(state): State<AppState>) -> ApiResult<Json<Vec<GitIndex>>> {
+    Ok(Json(GitRepository::open(state.repo_root)?.list_index()?))
 }
 
-async fn list_remote() -> ApiResult<Json<Vec<GitRemote>>> {
-    Ok(Json(GitRepository::open(".")?.list_remote()?))
-}
-
-async fn list_tag() -> ApiResult<Json<Vec<GitTag>>> {
-    Ok(Json(GitRepository::open(".")?.list_tag()?))
-}
-
-async fn list_tree() -> ApiResult<Json<Vec<GitTree>>> {
+async fn list_reference(State(state): State<AppState>) -> ApiResult<Json<Vec<GitReference>>> {
     Ok(Json(
-        GitRepository::open(".")?.list_tree(Default::default())?,
+        GitRepository::open(state.repo_root)?.list_reference()?,
+    ))
+}
+
+async fn list_remote(State(state): State<AppState>) -> ApiResult<Json<Vec<GitRemote>>> {
+    Ok(Json(GitRepository::open(state.repo_root)?.list_remote()?))
+}
+
+async fn list_tag(State(state): State<AppState>) -> ApiResult<Json<Vec<GitTag>>> {
+    Ok(Json(GitRepository::open(state.repo_root)?.list_tag()?))
+}
+
+async fn list_tree(State(state): State<AppState>) -> ApiResult<Json<Vec<GitTree>>> {
+    Ok(Json(
+        GitRepository::open(state.repo_root)?.list_tree(Default::default())?,
     ))
 }
