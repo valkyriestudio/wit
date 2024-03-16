@@ -6,7 +6,7 @@ RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
 
 FROM prep AS build
 COPY . .
-RUN cargo build --release
+RUN cargo build --release && cargo test --release
 
 FROM registry.docker.com/library/debian:12-slim AS base
 WORKDIR /app
