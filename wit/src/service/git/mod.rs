@@ -3,7 +3,10 @@ pub(crate) mod model;
 
 use std::path::Path;
 
-use git2::{ErrorClass, ErrorCode, ObjectType, Oid, Repository, TreeWalkMode, TreeWalkResult};
+use git2::{
+    Blob, Branch, Commit, ErrorClass, ErrorCode, Object, ObjectType, Oid, Reference, Repository,
+    Time, Tree, TreeEntry, TreeWalkMode, TreeWalkResult,
+};
 use time::{OffsetDateTime, UtcOffset};
 
 pub(crate) use self::error::{GitError, GitResult};
@@ -18,7 +21,85 @@ pub(crate) struct GitRepository {
 
 impl std::fmt::Debug for GitRepository {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.repo.path())
+        write!(f, "GitRepository {{ repo: {:?} }}", self.repo.path())
+    }
+}
+
+trait IdGetter {
+    fn get_id(&self) -> GitOid;
+}
+
+impl IdGetter for Branch<'_> {
+    fn get_id(&self) -> GitOid {
+        self.get().get_id()
+    }
+}
+
+impl IdGetter for Reference<'_> {
+    fn get_id(&self) -> GitOid {
+        self.resolve()
+            .as_ref()
+            .unwrap_or(self)
+            .target()
+            .unwrap_or(Oid::zero())
+            .into()
+    }
+}
+
+trait IntoDateTime {
+    fn datetime(&self) -> OffsetDateTime;
+}
+
+impl IntoDateTime for Time {
+    fn datetime(&self) -> OffsetDateTime {
+        let offset = match (
+            i8::try_from(self.offset_minutes() / 60),
+            i8::try_from(self.offset_minutes() % 60),
+        ) {
+            (Ok(h), Ok(m)) => UtcOffset::from_hms(h, m, 0).unwrap_or(UtcOffset::UTC),
+            _ => UtcOffset::UTC,
+        };
+        OffsetDateTime::from_unix_timestamp(self.seconds())
+            .unwrap_or(OffsetDateTime::UNIX_EPOCH)
+            .to_offset(offset)
+    }
+}
+
+trait ShortIdGetter {
+    fn get_short_id(&self) -> String;
+}
+
+impl ShortIdGetter for Blob<'_> {
+    fn get_short_id(&self) -> String {
+        self.as_object().get_short_id()
+    }
+}
+
+impl ShortIdGetter for Branch<'_> {
+    fn get_short_id(&self) -> String {
+        self.get().get_short_id()
+    }
+}
+
+impl ShortIdGetter for Commit<'_> {
+    fn get_short_id(&self) -> String {
+        self.as_object().get_short_id()
+    }
+}
+
+impl ShortIdGetter for Object<'_> {
+    fn get_short_id(&self) -> String {
+        self.short_id()
+            .map(|s| s.as_str().map(str::to_string).unwrap_or_default())
+            .unwrap_or_default()
+    }
+}
+
+impl ShortIdGetter for Reference<'_> {
+    fn get_short_id(&self) -> String {
+        self.peel_to_commit()
+            .map(|c| c.as_object().get_short_id())
+            .unwrap_or_default()
     }
 }
 
@@ -39,18 +120,14 @@ impl GitRepository {
     pub(crate) fn get_blob(&self, oid: GitOid) -> GitResult<GitBlob> {
         Ok(self.repo.find_blob(oid.0).map(|b| {
             let content = match b.is_binary() {
-                true => GitBlobContent::Binary(b.content().to_owned()),
+                true => GitBlobContent::Binary(b.content().into()),
                 false => GitBlobContent::Text(b.content().into()),
             };
             GitBlob {
                 content,
                 id: b.id().into(),
                 is_binary: b.is_binary(),
-                short_id: b
-                    .as_object()
-                    .short_id()
-                    .map(|s| s.as_str().map(str::to_string).unwrap_or_default())
-                    .unwrap_or_default(),
+                short_id: b.get_short_id(),
                 size: b.size(),
             }
         })?)
@@ -65,48 +142,16 @@ impl GitRepository {
                 kind: t.into(),
                 name: b.get().name_bytes().into(),
                 shorthand: b.name_bytes().unwrap_or_default().into(),
-                target: b
-                    .get()
-                    .resolve()
-                    .as_ref()
-                    .unwrap_or(b.get())
-                    .target()
-                    .unwrap_or(Oid::zero())
-                    .into(),
-                target_short: b
-                    .get()
-                    .peel_to_commit()
-                    .map(|c| {
-                        c.as_object()
-                            .short_id()
-                            .map(|s| s.as_str().map(str::to_string).unwrap_or_default())
-                            .unwrap_or_default()
-                    })
-                    .unwrap_or_default(),
+                target: b.get_id(),
+                target_short: b.get_short_id(),
                 upstream: b
                     .upstream()
                     .map(|u| {
                         Some(GitUpstream {
                             name: u.get().name_bytes().into(),
                             shorthand: u.name_bytes().unwrap_or_default().into(),
-                            target: u
-                                .get()
-                                .resolve()
-                                .as_ref()
-                                .unwrap_or(u.get())
-                                .target()
-                                .unwrap_or(Oid::zero())
-                                .into(),
-                            target_short: u
-                                .get()
-                                .peel_to_commit()
-                                .map(|c| {
-                                    c.as_object()
-                                        .short_id()
-                                        .map(|s| s.as_str().map(str::to_string).unwrap_or_default())
-                                        .unwrap_or_default()
-                                })
-                                .unwrap_or_default(),
+                            target: u.get_id(),
+                            target_short: u.get_short_id(),
                         })
                     })
                     .unwrap_or_default(),
@@ -119,32 +164,20 @@ impl GitRepository {
         revwalk.push_head()?;
         Ok(revwalk
             .flatten()
-            .filter_map(|oid| {
-                if let Ok(commit) = self.repo.find_commit(oid) {
-                    Some(GitCommit {
-                        author: commit.author().into(),
-                        committer: commit.committer().into(),
-                        id: commit.id().into(),
-                        message: commit.message_bytes().into(),
-                        short_id: commit
-                            .as_object()
-                            .short_id()
-                            .map(|s| s.as_str().map(str::to_string).unwrap_or_default())
-                            .unwrap_or_default(),
-                        time: OffsetDateTime::from_unix_timestamp(commit.time().seconds())
-                            .unwrap_or(OffsetDateTime::UNIX_EPOCH)
-                            .to_offset(
-                                UtcOffset::from_hms(
-                                    (commit.time().offset_minutes() / 60) as i8,
-                                    (commit.time().offset_minutes() % 60) as i8,
-                                    0,
-                                )
-                                .unwrap_or(UtcOffset::UTC),
-                            ),
+            .filter_map(|id| {
+                self.repo
+                    .find_commit(id)
+                    .map(|c| {
+                        Some(GitCommit {
+                            author: c.author().into(),
+                            committer: c.committer().into(),
+                            id: c.id().into(),
+                            message: c.message_bytes().into(),
+                            short_id: c.get_short_id(),
+                            time: c.time().datetime(),
+                        })
                     })
-                } else {
-                    None
-                }
+                    .unwrap_or_default()
             })
             .collect())
     }
@@ -164,12 +197,8 @@ impl GitRepository {
                 path: i.path.as_slice().into(),
                 short_id: self
                     .repo
-                    .find_object(i.id, None)
-                    .map(|c| {
-                        c.short_id()
-                            .map(|s| s.as_str().map(str::to_string).unwrap_or_default())
-                            .unwrap_or_default()
-                    })
+                    .find_blob(i.id)
+                    .map(|o| o.get_short_id())
                     .unwrap_or_default(),
                 uid: i.uid,
             })
@@ -185,22 +214,8 @@ impl GitRepository {
                 kind: r.kind().map(Into::into),
                 name: r.name_bytes().into(),
                 shorthand: r.shorthand_bytes().into(),
-                target: r
-                    .resolve()
-                    .as_ref()
-                    .unwrap_or(&r)
-                    .target()
-                    .unwrap_or(Oid::zero())
-                    .into(),
-                target_short: r
-                    .peel_to_commit()
-                    .map(|c| {
-                        c.as_object()
-                            .short_id()
-                            .map(|s| s.as_str().map(str::to_string).unwrap_or_default())
-                            .unwrap_or_default()
-                    })
-                    .unwrap_or_default(),
+                target: r.get_id(),
+                target_short: r.get_short_id(),
             })
             .collect())
     }
@@ -212,11 +227,11 @@ impl GitRepository {
             .iter_bytes()
             .map(|r| GitRemote {
                 name: r.into(),
-                url: if let Ok(remote) = self.repo.find_remote(&String::from_utf8_lossy(r)) {
-                    remote.url_bytes().into()
-                } else {
-                    Default::default()
-                },
+                url: self
+                    .repo
+                    .find_remote(&String::from_utf8_lossy(r))
+                    .map(|r| r.url_bytes().into())
+                    .unwrap_or_default(),
             })
             .collect())
     }
@@ -229,15 +244,7 @@ impl GitRepository {
                     name: name.into(),
                     shorthand: r.shorthand_bytes().into(),
                     target: id.into(),
-                    target_short: r
-                        .peel_to_commit()
-                        .map(|c| {
-                            c.as_object()
-                                .short_id()
-                                .map(|s| s.as_str().map(str::to_string).unwrap_or_default())
-                                .unwrap_or_default()
-                        })
-                        .unwrap_or_default(),
+                    target_short: r.get_short_id(),
                 });
             }
             true
@@ -247,86 +254,51 @@ impl GitRepository {
 
     pub(crate) fn list_tree(&self, path: &str) -> GitResult<Vec<GitTree>> {
         let path = path.strip_suffix('/').unwrap_or(path);
-        let mut vec = vec![];
         let commit = self.repo.head()?.peel_to_commit()?;
-        commit
-            .tree()
-            .unwrap()
-            .walk(TreeWalkMode::PreOrder, |root, entry| {
-                if path.is_empty() {
-                    vec.push(GitTree {
-                        filemode: entry.filemode(),
-                        id: entry.id().into(),
-                        kind: entry.kind().map(Into::into),
-                        name: entry.name_bytes().into(),
-                        root: root.to_owned(),
-                        short_id: entry
-                            .to_object(&self.repo)
-                            .map(|o| {
-                                o.short_id()
-                                    .map(|s| s.as_str().map(str::to_string).unwrap_or_default())
-                                    .unwrap_or_default()
-                            })
-                            .unwrap_or_default(),
-                    });
-                    if let Some(ObjectType::Tree) = entry.kind() {
-                        return TreeWalkResult::Skip;
-                    }
-                    return TreeWalkResult::Ok;
-                }
-                let curr = format!("{root}{}", entry.name().unwrap_or_default());
-                if path.eq(&curr) {
-                    if let Some(ObjectType::Tree) = entry.kind() {
-                        if let Ok(tree) = self.repo.find_tree(entry.id()) {
-                            for entry in tree.iter() {
-                                vec.push(GitTree {
-                                    filemode: entry.filemode(),
-                                    id: entry.id().into(),
-                                    kind: entry.kind().map(Into::into),
-                                    name: entry.name_bytes().into(),
-                                    root: format!("{curr}/"),
-                                    short_id: entry
-                                        .to_object(&self.repo)
-                                        .map(|o| {
-                                            o.short_id()
-                                                .map(|s| {
-                                                    s.as_str()
-                                                        .map(str::to_string)
-                                                        .unwrap_or_default()
-                                                })
-                                                .unwrap_or_default()
-                                        })
-                                        .unwrap_or_default(),
-                                });
-                            }
-                        }
-                    } else {
-                        vec.push(GitTree {
-                            filemode: entry.filemode(),
-                            id: entry.id().into(),
-                            kind: entry.kind().map(Into::into),
-                            name: entry.name_bytes().into(),
-                            root: root.to_owned(),
-                            short_id: entry
-                                .to_object(&self.repo)
-                                .map(|o| {
-                                    o.short_id()
-                                        .map(|s| s.as_str().map(str::to_string).unwrap_or_default())
-                                        .unwrap_or_default()
-                                })
-                                .unwrap_or_default(),
-                        });
-                    }
-                    return TreeWalkResult::Abort;
-                }
+        let root = commit.tree()?;
+        let convert_to_tree = |entry: &TreeEntry<'_>, root: &str| -> GitTree {
+            GitTree {
+                filemode: entry.filemode(),
+                id: entry.id().into(),
+                kind: entry.kind().map(Into::into),
+                name: entry.name_bytes().into(),
+                root: root.into(),
+                short_id: entry
+                    .to_object(&self.repo)
+                    .map(|o| o.get_short_id())
+                    .unwrap_or_default(),
+            }
+        };
+        let collect_tree = |tree: Tree<'_>, root: &str| -> Vec<_> {
+            tree.iter()
+                .map(|entry| convert_to_tree(&entry, root))
+                .collect()
+        };
+        if path.is_empty() {
+            let vec = collect_tree(root, "");
+            return Ok(vec);
+        }
+        let mut vec = vec![];
+        root.walk(TreeWalkMode::PreOrder, |root, entry| {
+            let curr = format!("{root}{}", entry.name().unwrap_or_default());
+            if path.eq(&curr) {
                 if let Some(ObjectType::Tree) = entry.kind() {
-                    if !path.starts_with(&format!("{curr}/")) {
-                        return TreeWalkResult::Skip;
+                    if let Ok(tree) = self.repo.find_tree(entry.id()) {
+                        vec = collect_tree(tree, &format!("{curr}/"));
                     }
+                } else {
+                    vec.push(convert_to_tree(entry, root));
                 }
-                TreeWalkResult::Ok
-            })
-            .unwrap_or_default();
+                return TreeWalkResult::Abort;
+            }
+            if let Some(ObjectType::Tree) = entry.kind() {
+                if !path.starts_with(&format!("{curr}/")) {
+                    return TreeWalkResult::Skip;
+                }
+            }
+            TreeWalkResult::Ok
+        })
+        .unwrap_or_default();
         Ok(vec)
     }
 
@@ -334,12 +306,11 @@ impl GitRepository {
     where
         P: AsRef<Path>,
     {
-        let path: Box<Path> = path.as_ref().into();
         Repository::open(&path)
             .map(|r| GitRepository { repo: r })
             .map_err(|e| match (e.class(), e.code()) {
                 (ErrorClass::Os | ErrorClass::Repository, ErrorCode::NotFound) => {
-                    GitError::RepositoryNotFound(path)
+                    GitError::RepositoryNotFound(path.as_ref().into())
                 }
                 _ => e.into(),
             })

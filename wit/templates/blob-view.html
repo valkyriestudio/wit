@@ -1,0 +1,32 @@
+      <div class="px-2">
+        <table class="table-fixed">
+          <tbody>
+            <tr>
+              <td class="w-16">Oid:</td>
+              <td>
+                <div class="tooltip tooltip-bottom" data-tip="{{ blob.id }}">
+                  {{ blob.short_id|truncate(16) }}
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td class="w-16">Binary:</td>
+              <td>{{ blob.is_binary }}</td>
+            </tr>
+            <tr>
+              <td class="w-16">Size:</td>
+              <td>{{ blob.size|filesizeformat }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="mockup-code bg-base-100 text-base-content border-2 border-accent">
+      {%- match blob.content %}
+      {%- when GitBlobContent::Text with (content) %}
+      {%- for (i, line) in content.0.lines().enumerate() %}
+        <pre data-prefix="{{ i + 1 }}"><code>{{ line }}</code></pre>
+      {%- endfor %}
+      {%- when GitBlobContent::Binary with (_) %}
+        <pre><code>{{ blob.content }}</code></pre>
+      {%- endmatch %}
+      </div>

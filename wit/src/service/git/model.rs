@@ -36,21 +36,18 @@ pub(crate) struct GitBranch {
     pub(crate) upstream: Option<GitUpstream>,
 }
 
-#[derive(Debug)]
-pub(crate) struct GitBranchType(pub(crate) BranchType);
+#[derive(Debug, Serialize)]
+pub(crate) enum GitBranchType {
+    Local,
+    Remote,
+}
 
 impl From<BranchType> for GitBranchType {
     fn from(t: BranchType) -> Self {
-        GitBranchType(t)
-    }
-}
-
-impl Serialize for GitBranchType {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        format!("{:?}", self.0).serialize(serializer)
+        match t {
+            BranchType::Local => GitBranchType::Local,
+            BranchType::Remote => GitBranchType::Remote,
+        }
     }
 }
 
@@ -77,21 +74,24 @@ pub(crate) struct GitIndex {
     pub(crate) uid: u32,
 }
 
-#[derive(Debug)]
-pub(crate) struct GitObjectType(pub(crate) ObjectType);
+#[derive(Debug, Serialize)]
+pub(crate) enum GitObjectType {
+    Any,
+    Blob,
+    Commit,
+    Tag,
+    Tree,
+}
 
 impl From<ObjectType> for GitObjectType {
     fn from(t: ObjectType) -> Self {
-        GitObjectType(t)
-    }
-}
-
-impl Serialize for GitObjectType {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        format!("{:?}", self.0).serialize(serializer)
+        match t {
+            ObjectType::Any => GitObjectType::Any,
+            ObjectType::Blob => GitObjectType::Blob,
+            ObjectType::Commit => GitObjectType::Commit,
+            ObjectType::Tag => GitObjectType::Tag,
+            ObjectType::Tree => GitObjectType::Tree,
+        }
     }
 }
 
@@ -162,21 +162,18 @@ pub(crate) struct GitReference {
     pub(crate) target_short: String,
 }
 
-#[derive(Debug)]
-pub(crate) struct GitReferenceType(pub(crate) ReferenceType);
+#[derive(Debug, Serialize)]
+pub(crate) enum GitReferenceType {
+    Direct,
+    Symbolic,
+}
 
 impl From<ReferenceType> for GitReferenceType {
     fn from(t: ReferenceType) -> Self {
-        GitReferenceType(t)
-    }
-}
-
-impl Serialize for GitReferenceType {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        format!("{:?}", self.0).serialize(serializer)
+        match t {
+            ReferenceType::Direct => GitReferenceType::Direct,
+            ReferenceType::Symbolic => GitReferenceType::Symbolic,
+        }
     }
 }
 

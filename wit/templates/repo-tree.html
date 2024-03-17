@@ -1,57 +1,16 @@
-<!DOCTYPE html>
-<html lang="en">
-    <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width">
-        <title>wit</title>
-        <link href="/assets/daisyui.full.min.css" rel="stylesheet" type="text/css"/>
-        <script src="/assets/tailwind.js"></script>
-    </head>
-    <body>
-        <div class="container mx-auto my-2">
-        {%- match data %}
-        {%- when TreeView::Tree with (tree) %}
-        {%- for item in tree %}
-            {%- if let Some(GitObjectType(git2::ObjectType::Tree)) = item.kind %}
-            <div><a class="link" href="/git/tree/{{ item.root }}{{ item.name }}">{{ item.name }}/</a></div>
-            {%- else %}
-            <div><a class="link" href="/git/tree/{{ item.root }}{{ item.name }}">{{ item.name }}</a></div>
-            {%- endif %}
-        {%- endfor %}
-        {%- when TreeView::Blob with (blob) %}
-            <div class="px-2">
-                <table class="table-fixed">
-                    <tbody>
-                        <tr>
-                            <td class="w-16">Oid:</td>
-                            <td>
-                                <div class="tooltip tooltip-bottom" data-tip="{{ blob.id }}">
-                                    {{ blob.short_id|truncate(16) }}
-                                </div>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td class="w-16">Binary:</td>
-                            <td>{{ blob.is_binary }}</td>
-                        </tr>
-                        <tr>
-                            <td class="w-16">Size:</td>
-                            <td>{{ blob.size|filesizeformat }}</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-            <div class="mockup-code">
-            {%- match blob.content %}
-            {%- when GitBlobContent::Text with (content) %}
-            {%- for (i, line) in content.0.lines().enumerate() %}
-                <pre data-prefix="{{ i + 1 }}"><code>{{ line }}</code></pre>
-            {%- endfor %}
-            {%- when GitBlobContent::Binary with (_) %}
-                <pre><code>{{ blob.content }}</code></pre>
-            {%- endmatch %}
-            </div>
-        {%- endmatch %}
-        </div>
-    </body>
-</html>
+{% extends "base.html" %}
+
+{% block content %}
+    {%- match data %}
+    {%- when TreeView::Tree with (tree) %}
+    {%- for item in tree %}
+      {%- if let Some(GitObjectType::Tree) = item.kind %}
+      <div><a class="link" href="/git/tree/{{ item.root }}{{ item.name }}">{{ item.name }}/</a></div>
+      {%- else %}
+      <div><a class="link" href="/git/tree/{{ item.root }}{{ item.name }}">{{ item.name }}</a></div>
+      {%- endif %}
+    {%- endfor %}
+    {%- when TreeView::Blob with (blob) %}
+{% include "blob-view.html" %}
+    {%- endmatch %}
+{%- endblock %}
