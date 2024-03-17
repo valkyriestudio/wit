@@ -16,5 +16,6 @@ WORKDIR /app
 EXPOSE 3000
 ENV RUST_LOG=info
 COPY --from=build /usr/src/myapp/target/release/wit /app
+COPY --from=build /usr/src/myapp/assets /app/assets
 
 CMD ["./wit"]
