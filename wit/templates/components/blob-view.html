@@ -1,3 +1,4 @@
+{%- macro display(blob) %}
       <div class="px-2">
         <table class="table-fixed">
           <tbody>
@@ -30,3 +31,4 @@
         <pre><code>{{ blob.content }}</code></pre>
       {%- endmatch %}
       </div>
+{%- endmacro %}
