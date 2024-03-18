@@ -1,0 +1,18 @@
+{% extends "components/base.html" %}
+
+{%- import "components/blob-view.html" as blob_view %}
+
+{%- block content %}
+    {%- match data %}
+    {%- when TreeView::Tree with (tree) %}
+    {%- for item in tree %}
+      {%- if let Some(GitObjectType::Tree) = item.kind %}
+      <div><a class="link" href="/git/tree/{{ item.root }}{{ item.name }}">{{ item.name }}/</a></div>
+      {%- else %}
+      <div><a class="link" href="/git/tree/{{ item.root }}{{ item.name }}">{{ item.name }}</a></div>
+      {%- endif %}
+    {%- endfor %}
+    {%- when TreeView::Blob with (blob) %}
+      {%- call blob_view::display(blob) %}
+    {%- endmatch %}
+{%- endblock %}

@@ -1,0 +1,14 @@
+{% extends "components/base.html" %}
+
+{%- import "components/blob-view.html" as blob_view %}
+
+{%- block content %}
+    {%- match data %}
+    {%- when IndexView::Index with (index) %}
+    {%- for item in index %}
+      <div><a class="link" href="/git/index/{{ item.path }}">{{ item.path }}</a></div>
+    {%- endfor %}
+    {%- when IndexView::Blob with (blob) %}
+      {%- call blob_view::display(blob) %}
+    {%- endmatch %}
+{%- endblock %}
