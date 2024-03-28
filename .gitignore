@@ -1,5 +1,7 @@
 ## Build
 /target
+node_modules
+/assets
 
 ## Editor
 *.swp
@@ -7,3 +9,4 @@
 
 ## Tool
 .cargo
+.npmrc

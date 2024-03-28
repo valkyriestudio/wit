@@ -1,0 +1,9 @@
+{
+  "license": "BSD-3-Clause",
+  "name": "wit-monorepo",
+  "private": true,
+  "scripts": {
+    "build": "pnpm --filter wit build"
+  },
+  "version": "0.0.1"
+}
