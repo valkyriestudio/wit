@@ -1,4 +1,4 @@
-name: Docker
+name: Publish
 
 on:
   push:
@@ -8,9 +8,15 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
+    permissions:
+      packages: write
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-
-      - run: |
-          docker build .
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Log in to registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Build and push image
+        run: |
+          docker build --push --tag "ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:nightly" .
