@@ -21,7 +21,7 @@
           </tbody>
         </table>
       </div>
-      <div class="mockup-code bg-base-100 text-base-content border-2 border-accent">
+      <div class="mockup-code bg-base-100 text-base-content border-2 border-accent mt-2">
       {%- match blob.content %}
       {%- when GitBlobContent::Text with (content) %}
       {%- for (i, line) in content.0.lines().enumerate() %}

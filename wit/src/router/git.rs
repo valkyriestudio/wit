@@ -82,6 +82,7 @@ struct HelloTemplate {}
 #[template(path = "repo-index.html")]
 struct RepoIndexTemplate {
     data: IndexView,
+    segments: Vec<String>,
 }
 
 enum IndexView {
@@ -93,6 +94,7 @@ enum IndexView {
 #[template(path = "repo-tree.html")]
 struct RepoTreeTemplate {
     data: TreeView,
+    segments: Vec<String>,
 }
 
 enum TreeView {
@@ -110,20 +112,32 @@ async fn list_index(
 ) -> RenderResult<RepoIndexTemplate> {
     let path = path.or_else(map_empty_segment_to_default)?.0;
     let repo = GitRepository::open(state.repo_root)?;
-    let mut index = repo.list_index()?;
-    if let Some((i, _)) = index
-        .iter()
-        .enumerate()
-        .find(|(_, entry)| entry.path.0.eq(&path))
-    {
-        let entry = index.swap_remove(i);
-        let blob = repo.get_blob(entry.id)?;
-        return Ok(RepoIndexTemplate {
-            data: IndexView::Blob(blob),
-        });
+    let mut index = repo.list_index(&path)?;
+    let segments = if path.is_empty() {
+        vec![]
+    } else {
+        path.split('/').map(str::to_string).collect()
+    };
+    if index.len() == 1 {
+        let entry = &index[0];
+        let full_path = match entry {
+            GitIndex::Directory(e) => &e.path,
+            GitIndex::Entry(e) => &e.path,
+        };
+        if full_path.0.eq(&path) {
+            let entry = index.swap_remove(0);
+            if let GitIndex::Entry(e) = entry {
+                let blob = repo.get_blob(e.id)?;
+                return Ok(RepoIndexTemplate {
+                    data: IndexView::Blob(blob),
+                    segments,
+                });
+            }
+        }
     }
     Ok(RepoIndexTemplate {
         data: IndexView::Index(index),
+        segments,
     })
 }
 
@@ -134,6 +148,11 @@ async fn list_tree(
     let path = path.or_else(map_empty_segment_to_default)?.0;
     let repo = GitRepository::open(state.repo_root)?;
     let mut tree = repo.list_tree(&path)?;
+    let segments = if path.is_empty() {
+        vec![]
+    } else {
+        path.split('/').map(str::to_string).collect()
+    };
     if tree.len() == 1 {
         let entry = &tree[0];
         if format!("{}{}", entry.root, entry.name).eq(&path) {
@@ -141,11 +160,13 @@ async fn list_tree(
             let blob = repo.get_blob(entry.id)?;
             return Ok(RepoTreeTemplate {
                 data: TreeView::Blob(blob),
+                segments,
             });
         }
     }
     Ok(RepoTreeTemplate {
         data: TreeView::Tree(tree),
+        segments,
     })
 }
 
