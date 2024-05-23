@@ -113,7 +113,9 @@ async fn list_commit(State(state): State<AppState>) -> ApiResult<Json<Vec<GitCom
 }
 
 async fn list_index(State(state): State<AppState>) -> ApiResult<Json<Vec<GitIndex>>> {
-    Ok(Json(GitRepository::open(state.repo_root)?.list_index()?))
+    Ok(Json(
+        GitRepository::open(state.repo_root)?.list_index(Default::default())?,
+    ))
 }
 
 async fn list_reference(State(state): State<AppState>) -> ApiResult<Json<Vec<GitReference>>> {

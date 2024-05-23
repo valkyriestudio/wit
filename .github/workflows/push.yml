@@ -19,4 +19,4 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - name: Build and push image
         run: |
-          docker build --push --tag "ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:nightly" .
+          docker build --push --tag "ghcr.io/${{ github.repository }}:nightly" .

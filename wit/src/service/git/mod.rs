@@ -1,18 +1,18 @@
 mod error;
 pub(crate) mod model;
 
-use std::path::Path;
+use std::{collections::HashSet, path::Path};
 
 use git2::{
-    Blob, Branch, Commit, ErrorClass, ErrorCode, Object, ObjectType, Oid, Reference, Repository,
-    Time, Tree, TreeEntry, TreeWalkMode, TreeWalkResult,
+    Blob, Branch, Commit, ErrorClass, ErrorCode, IndexEntry, Object, ObjectType, Oid, Reference,
+    Repository, Time, Tree, TreeEntry, TreeWalkMode, TreeWalkResult,
 };
 use time::{OffsetDateTime, UtcOffset};
 
 pub(crate) use self::error::{GitError, GitResult};
 use self::model::{
-    GitBlob, GitBlobContent, GitBranch, GitCommit, GitIndex, GitOid, GitReference, GitRemote,
-    GitStatus, GitTag, GitTree, GitUpstream,
+    GitBlob, GitBlobContent, GitBranch, GitCommit, GitIndex, GitIndexDirectory, GitIndexEntry,
+    GitOid, GitReference, GitRemote, GitStatus, GitTag, GitTree, GitUpstream, MaybeLossyUtf8,
 };
 
 pub(crate) struct GitRepository {
@@ -182,25 +182,66 @@ impl GitRepository {
             .collect())
     }
 
-    pub(crate) fn list_index(&self) -> GitResult<Vec<GitIndex>> {
+    pub(crate) fn list_index(&self, path: &str) -> GitResult<Vec<GitIndex>> {
+        let path = path.strip_suffix('/').unwrap_or(path);
+        let depth = if path.is_empty() {
+            0
+        } else {
+            path.split('/').count()
+        };
+        let convert_to_index_entry = |entry: IndexEntry, path: MaybeLossyUtf8| GitIndexEntry {
+            ctime: entry.ctime.seconds(),
+            file_size: entry.file_size,
+            gid: entry.gid,
+            id: entry.id.into(),
+            mode: entry.mode,
+            mtime: entry.mtime.seconds(),
+            name: path
+                .0
+                .split('/')
+                .last()
+                .map(str::to_string)
+                .unwrap_or_default()
+                .into(),
+            path,
+            short_id: self
+                .repo
+                .find_blob(entry.id)
+                .map(|o| o.get_short_id())
+                .unwrap_or_default(),
+            uid: entry.uid,
+        };
+        let mut set = HashSet::<String>::new();
         Ok(self
             .repo
             .index()?
             .iter()
-            .map(|i| GitIndex {
-                ctime: i.ctime.seconds(),
-                file_size: i.file_size,
-                gid: i.gid,
-                id: i.id.into(),
-                mode: i.mode,
-                mtime: i.mtime.seconds(),
-                path: i.path.as_slice().into(),
-                short_id: self
-                    .repo
-                    .find_blob(i.id)
-                    .map(|o| o.get_short_id())
-                    .unwrap_or_default(),
-                uid: i.uid,
+            .filter_map(|entry| {
+                let full_path: MaybeLossyUtf8 = entry.path.as_slice().into();
+                if full_path.0.eq(path) {
+                    Some(convert_to_index_entry(entry, full_path).into())
+                } else if path.is_empty() || full_path.0.starts_with(&format!("{path}/")) {
+                    let components = full_path.0.splitn(depth + 2, '/').collect::<Vec<&str>>();
+                    if components.len() == depth + 1 {
+                        Some(convert_to_index_entry(entry, full_path).into())
+                    } else {
+                        let path = components[0..depth + 1].join("/");
+                        if set.contains(&path) {
+                            None
+                        } else {
+                            set.insert(path.clone());
+                            Some(
+                                GitIndexDirectory {
+                                    name: components[depth].to_owned().into(),
+                                    path: path.into(),
+                                }
+                                .into(),
+                            )
+                        }
+                    }
+                } else {
+                    None
+                }
             })
             .collect())
     }
@@ -400,16 +441,36 @@ mod tests {
 
     #[test]
     fn test_list_index() {
-        let sample = [".."];
-        for path in sample.into_iter() {
-            let entries = GitRepository::open("..")
+        let sample = [
+            ("..", Default::default(), Default::default()),
+            ("..", "wit", String::from("wit/")),
+            ("..", "wit/", String::from("wit/")),
+            ("..", "wit/src/main.rs", String::from("wit/src/")),
+        ];
+        for (path, index, root) in sample.into_iter() {
+            let entries = GitRepository::open(path)
                 .unwrap_or_else(|e| panic!("{path:?} should be a valid git repo: {e:?}"))
-                .list_index()
+                .list_index(index)
                 .unwrap_or_else(|e| {
                     panic!("list_index in git repo {path:?} should not fail: {e:?}")
                 });
             for item in entries.iter() {
                 println!("{item:?}");
+                let full_path = match item {
+                    GitIndex::Directory(e) => &e.path,
+                    GitIndex::Entry(e) => &e.path,
+                };
+                if !index.is_empty() {
+                    assert!(
+                        full_path.0.starts_with(&root),
+                        "unexpected root of index entry"
+                    );
+                }
+                assert_eq!(
+                    full_path.0.split('/').count(),
+                    root.split('/').count(),
+                    "unexpected root of index entry"
+                )
             }
         }
     }

@@ -1,12 +1,21 @@
 {% extends "components/base.html" %}
 
 {%- import "components/blob-view.html" as blob_view %}
+{%- import "components/navigate.html" as navigate %}
 
 {%- block content %}
+    {%- let base = "/git/index" %}
+    {%- call navigate::display(base, segments) %}
+    <div class="divider my-2"></div>
     {%- match data %}
     {%- when IndexView::Index with (index) %}
     {%- for item in index %}
-      <div><a class="link" href="/git/index/{{ item.path }}">{{ item.path }}</a></div>
+    {%- match item %}
+    {%- when GitIndex::Directory with (directory) %}
+      <div><a class="link" href="{{ base }}/{{ directory.path }}">{{ directory.name }}/</a></div>
+    {%- when GitIndex::Entry with (entry) %}
+      <div><a class="link" href="{{ base }}/{{ entry.path }}">{{ entry.name }}</a></div>
+    {%- endmatch %}
     {%- endfor %}
     {%- when IndexView::Blob with (blob) %}
       {%- call blob_view::display(blob) %}

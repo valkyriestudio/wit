@@ -1,15 +1,19 @@
 {% extends "components/base.html" %}
 
 {%- import "components/blob-view.html" as blob_view %}
+{%- import "components/navigate.html" as navigate %}
 
 {%- block content %}
+    {%- let base = "/git/tree" %}
+    {%- call navigate::display(base, segments) %}
+    <div class="divider my-2"></div>
     {%- match data %}
     {%- when TreeView::Tree with (tree) %}
     {%- for item in tree %}
       {%- if let Some(GitObjectType::Tree) = item.kind %}
-      <div><a class="link" href="/git/tree/{{ item.root }}{{ item.name }}">{{ item.name }}/</a></div>
+      <div><a class="link" href="{{ base }}/{{ item.root }}{{ item.name }}">{{ item.name }}/</a></div>
       {%- else %}
-      <div><a class="link" href="/git/tree/{{ item.root }}{{ item.name }}">{{ item.name }}</a></div>
+      <div><a class="link" href="{{ base }}/{{ item.root }}{{ item.name }}">{{ item.name }}</a></div>
       {%- endif %}
     {%- endfor %}
     {%- when TreeView::Blob with (blob) %}
