@@ -1,10 +1,10 @@
 {
   "devDependencies": {
     "autoprefixer": "^10.4.19",
-    "daisyui": "^4.11.1",
-    "postcss": "^8.4.38",
+    "daisyui": "^4.12.10",
+    "postcss": "^8.4.39",
     "postcss-cli": "^11.0.0",
-    "tailwindcss": "^3.4.3"
+    "tailwindcss": "^3.4.4"
   },
   "license": "BSD-3-Clause",
   "name": "wit",
