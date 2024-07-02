@@ -1,4 +1,4 @@
-FROM docker.io/library/rust:1.77 AS server
+FROM docker.io/library/rust:1.79 AS server
 WORKDIR /app
 COPY .rustfmt.toml Cargo.lock Cargo.toml ./
 COPY wit ./wit
@@ -7,7 +7,7 @@ RUN --mount=type=bind,source=.git,target=.git \
     cargo test \
     && cargo build --release
 
-FROM docker.io/library/node:20.12 AS assets
+FROM docker.io/library/node:20 AS assets
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY wit ./wit
