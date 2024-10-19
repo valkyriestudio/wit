@@ -51,7 +51,7 @@ async fn main() -> tokio::io::Result<()> {
 
     tracing::info!("listening on {}", listener.local_addr()?);
 
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app).tcp_nodelay(true).await?;
 
     Ok(())
 }
