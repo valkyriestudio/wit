@@ -146,7 +146,7 @@ impl From<Oid> for GitOid {
 
 struct GitOidVisitor;
 
-impl<'de> Visitor<'de> for GitOidVisitor {
+impl Visitor<'_> for GitOidVisitor {
     type Value = GitOid;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {

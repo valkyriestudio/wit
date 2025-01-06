@@ -3,8 +3,7 @@ WORKDIR /app
 COPY .rustfmt.toml Cargo.lock Cargo.toml ./
 COPY wit ./wit
 RUN cargo fetch
-RUN --mount=type=bind,source=.git,target=.git \
-    cargo test \
+RUN cargo test \
     && cargo build --release
 
 FROM docker.io/library/node:22 AS assets

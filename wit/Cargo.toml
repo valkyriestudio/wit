@@ -6,16 +6,19 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-askama = { version = "0.12.1", features = ["with-axum"] }
-askama_axum = "0.4.0"
-axum = "0.7.9"
-git2 = { version = "0.19.0", default-features = false }
+askama = { git = "https://github.com/bikesheddev/askama.git", branch = "bump-axum-core-version", features = ["with-axum"] }
+askama_axum = { git = "https://github.com/bikesheddev/askama.git", branch = "bump-axum-core-version" }
+axum = "0.8.1"
+git2 = { version = "0.20.0", default-features = false }
 mimalloc = { version = "0.1.43", default-features = false }
-serde = { version = "1.0.216", features = ["derive"] }
-serde_json = "1.0.133"
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.135"
 time = { version = "0.3.37", features = ["serde-human-readable"] }
 tokio = { version = "1.42.0", features = ["macros", "rt-multi-thread"] }
 tower = "0.5.2"
 tower-http = { version = "0.6.2", features = ["catch-panic", "compression-full", "cors", "fs", "propagate-header", "request-id", "sensitive-headers", "timeout", "trace", "util"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+
+[dev-dependencies]
+tempfile = "3.15.0"

@@ -69,9 +69,9 @@ pub(crate) fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(hello))
         .route("/index", get(list_index))
-        .route("/index/*path", get(list_index))
+        .route("/index/{*path}", get(list_index))
         .route("/tree", get(list_tree))
-        .route("/tree/*path", get(list_tree))
+        .route("/tree/{*path}", get(list_tree))
 }
 
 #[derive(Template)]
