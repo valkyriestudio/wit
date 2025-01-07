@@ -3,6 +3,7 @@ mod service;
 
 use std::net::{IpAddr, Ipv4Addr};
 
+use axum::serve::{Listener, ListenerExt};
 use mimalloc::MiMalloc;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
@@ -47,11 +48,17 @@ async fn main() -> tokio::io::Result<()> {
 
     let app = router::create_app();
 
-    let listener = tokio::net::TcpListener::bind((bind_address, port)).await?;
+    let listener = tokio::net::TcpListener::bind((bind_address, port))
+        .await?
+        .tap_io(|tcp_stream| {
+            if let Err(err) = tcp_stream.set_nodelay(true) {
+                tracing::warn!("failed to set TCP_NODELAY on incoming connection: {err:?}");
+            }
+        });
 
     tracing::info!("listening on {}", listener.local_addr()?);
 
-    axum::serve(listener, app).tcp_nodelay(true).await?;
+    axum::serve(listener, app).await?;
 
     Ok(())
 }

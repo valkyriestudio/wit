@@ -25,6 +25,12 @@ impl std::fmt::Debug for GitRepository {
     }
 }
 
+impl From<Repository> for GitRepository {
+    fn from(r: Repository) -> Self {
+        GitRepository { repo: r }
+    }
+}
+
 trait IdGetter {
     fn get_id(&self) -> GitOid;
 }
@@ -360,109 +366,268 @@ impl GitRepository {
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsStr;
+    use std::{
+        fs::{create_dir_all, File},
+        io::Write,
+    };
 
-    use git2::Oid;
+    use git2::{Signature, Status};
+    use tempfile::tempdir;
+
+    use model::GitBranchType;
 
     use super::*;
 
+    fn commit_with_signature(
+        repo: &Repository,
+        tree_id: Oid,
+        message: &str,
+        name: &str,
+        email: &str,
+        time: Option<i64>,
+    ) -> Oid {
+        let tree = repo
+            .find_tree(tree_id)
+            .unwrap_or_else(|e| panic!("find git tree failed: {e:?}"));
+        let sig = match time {
+            Some(time) => Signature::new(name, email, &Time::new(time, 0)),
+            None => Signature::now(name, email),
+        }
+        .unwrap_or_else(|e| panic!("create git signature failed: {e:?}"));
+        repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &[])
+            .unwrap_or_else(|e| panic!("create git commit failed: {e:?}"))
+    }
+
+    fn create_file_with_content<P: AsRef<Path>>(file_path: P, content: &str) {
+        if let Some(parent) = file_path.as_ref().parent() {
+            create_dir_all(parent).unwrap_or_else(|e| panic!("create parent dir failed: {e:?}"));
+        }
+        let mut file =
+            File::create(file_path).unwrap_or_else(|e| panic!("create file failed: {e:?}"));
+        write!(file, "{content}").unwrap_or_else(|e| panic!("write file failed: {e:?}"));
+    }
+
+    fn create_tag_for_commit(repo: &Repository, tag: &str, commit_id: Oid) -> Oid {
+        let commit = repo
+            .find_commit(commit_id)
+            .unwrap_or_else(|e| panic!("find commit object failed: {e:?}"));
+        repo.tag_lightweight(tag, commit.as_object(), false)
+            .unwrap_or_else(|e| panic!("create git tag failed: {e:?}"))
+    }
+
+    fn initialize_git_repo<P: AsRef<Path>>(path: P) -> Repository {
+        Repository::init(path).unwrap_or_else(|e| panic!("initialize git repo failed: {e:?}"))
+    }
+
+    fn set_git_head_to_branch(repo: &Repository, branch: &str) {
+        repo.set_head(&format!("refs/heads/{branch}"))
+            .unwrap_or_else(|e| panic!("set git head failed: {e:?}"));
+    }
+
+    fn write_index_tree(repo: &Repository, index_entry: &[&Path]) -> Oid {
+        let mut index = repo
+            .index()
+            .unwrap_or_else(|e| panic!("get git index failed: {e:?}"));
+        for &path in index_entry.iter() {
+            index
+                .add_path(path)
+                .unwrap_or_else(|e| panic!("add file to git index failed: {e:?}"));
+        }
+        index
+            .write_tree()
+            .unwrap_or_else(|e| panic!("write git index failed: {e:?}"))
+    }
+
     #[test]
     fn test_gather_status() {
-        let sample = [".."];
-        for path in sample.into_iter() {
-            let entries = GitRepository::open("..")
-                .unwrap_or_else(|e| panic!("{path:?} should be a valid git repo: {e:?}"))
-                .gather_status()
-                .unwrap_or_else(|e| {
-                    panic!("gather_status in git repo {path:?} should not fail: {e:?}")
-                });
-            for item in entries.iter() {
-                println!("{item:?}");
-            }
-        }
+        let dir = tempdir().unwrap_or_else(|e| panic!("create tempdir failed: {e:?}"));
+        let path = dir.path();
+        let repo = initialize_git_repo(path);
+
+        let file_name = "README.md";
+        create_file_with_content(path.join(file_name), "git + web = wit\n");
+
+        let repo: GitRepository = repo.into();
+        let entries = repo.gather_status().unwrap_or_else(|e| {
+            panic!("gather_status in git repo {path:?} should not fail: {e:?}")
+        });
+
+        assert_eq!(entries.len(), 1);
+        let item = &entries[0];
+        assert_eq!(item.path.to_string(), file_name);
+        assert_eq!(item.status.0, Status::WT_NEW);
+        assert_eq!(item.status_bits, 128);
     }
 
     #[test]
     fn test_get_blob() {
-        let sample = [".."];
-        for path in sample.into_iter() {
-            GitRepository::open("..")
-                .unwrap_or_else(|e| panic!("{path:?} should be a valid git repo: {e:?}"))
-                .get_blob(GitOid(Oid::zero()))
-                .expect_err("get_blob(all zero Oid) in git repo {path:?} is expected to fail");
+        let dir = tempdir().unwrap_or_else(|e| panic!("create tempdir failed: {e:?}"));
+        let path = dir.path();
+        let repo = initialize_git_repo(path);
+
+        let file_name = "README.md";
+        let content = "git + web = wit\n";
+        create_file_with_content(path.join(file_name), content);
+
+        set_git_head_to_branch(&repo, "main");
+        let tree_id = write_index_tree(&repo, &[Path::new(file_name)]);
+        commit_with_signature(
+            &repo,
+            tree_id,
+            "Initial commit",
+            "wit",
+            "wit@example.com",
+            None,
+        );
+
+        let repo: GitRepository = repo.into();
+        repo.get_blob(GitOid(Oid::zero()))
+            .expect_err("get_blob(all_zero_oid) in git repo {path:?} is expected to fail");
+
+        let entries = repo
+            .list_tree(file_name)
+            .unwrap_or_else(|e| panic!("list_tree in git repo {path:?} should not fail: {e:?}"));
+
+        assert_eq!(entries.len(), 1);
+        let item = &entries[0];
+
+        let blob = repo
+            .get_blob(item.id.clone())
+            .unwrap_or_else(|e| panic!("get_blob in git repo {path:?} should not fail: {e:?}"));
+
+        if let GitBlobContent::Text(s) = blob.content {
+            assert_eq!(s.to_string(), content)
+        } else {
+            panic!("blob content should be text")
         }
-        let sample = [("..", "LICENSE")];
-        for (path, tree) in sample.into_iter() {
-            let repo = GitRepository::open(path)
-                .unwrap_or_else(|e| panic!("{path:?} should be a valid git repo: {e:?}"));
-            let entries = repo.list_tree(tree).unwrap_or_else(|e| {
-                panic!("list_tree in git repo {path:?} should not fail: {e:?}")
-            });
-            for item in entries.into_iter() {
-                let blob = repo.get_blob(item.id).unwrap_or_else(|e| {
-                    panic!("get_blob in git repo {path:?} should not fail: {e:?}")
-                });
-                println!("{blob:?}");
-            }
-        }
+        assert!(!blob.is_binary);
+        assert!(blob.short_id.len() >= 7);
+        assert_eq!(blob.size, content.len());
     }
 
     #[test]
     fn test_list_branch() {
-        let sample = [".."];
-        for path in sample.into_iter() {
-            let entries = GitRepository::open("..")
-                .unwrap_or_else(|e| panic!("{path:?} should be a valid git repo: {e:?}"))
-                .list_branch()
-                .unwrap_or_else(|e| {
-                    panic!("list_branch in git repo {path:?} should not fail: {e:?}")
-                });
-            for item in entries.iter() {
-                println!("{item:?}");
-            }
-        }
+        let dir = tempdir().unwrap_or_else(|e| panic!("create tempdir failed: {e:?}"));
+        let path = dir.path();
+        let repo = initialize_git_repo(path);
+
+        let branch = "main";
+        set_git_head_to_branch(&repo, branch);
+        let tree_id = write_index_tree(&repo, &[]);
+        commit_with_signature(
+            &repo,
+            tree_id,
+            "Initial commit",
+            "wit",
+            "wit@example.com",
+            None,
+        );
+
+        let repo: GitRepository = repo.into();
+        let entries = repo
+            .list_branch()
+            .unwrap_or_else(|e| panic!("list_branch in git repo {path:?} should not fail: {e:?}"));
+
+        assert_eq!(entries.len(), 1);
+        let item = &entries[0];
+        assert!(matches!(item.kind, GitBranchType::Local));
+        assert_eq!(item.name.to_string(), format!("refs/heads/{branch}"));
+        assert_eq!(item.shorthand.to_string(), branch);
+        assert!(item.target_short.len() >= 7);
+        assert!(item.upstream.is_none());
     }
 
     #[test]
     fn test_list_commit() {
-        let sample = [".."];
-        for path in sample.into_iter() {
-            let entries = GitRepository::open("..")
-                .unwrap_or_else(|e| panic!("{path:?} should be a valid git repo: {e:?}"))
-                .list_commit()
-                .unwrap_or_else(|e| {
-                    panic!("list_commit in git repo {path:?} should not fail: {e:?}")
-                });
-            for item in entries.iter() {
-                println!("{item:?}");
-            }
-        }
+        let dir = tempdir().unwrap_or_else(|e| panic!("create tempdir failed: {e:?}"));
+        let path = dir.path();
+        let repo = initialize_git_repo(path);
+
+        let user_name = "wit";
+        let user_email = "wit@example.com";
+        let now = OffsetDateTime::now_utc()
+            .replace_nanosecond(0)
+            .unwrap_or_else(|e| panic!("round current time failed: {e:?}"));
+        let commit_message = "Initial commit";
+        set_git_head_to_branch(&repo, "main");
+        let tree_id = write_index_tree(&repo, &[]);
+        commit_with_signature(
+            &repo,
+            tree_id,
+            commit_message,
+            user_name,
+            user_email,
+            Some(now.unix_timestamp()),
+        );
+
+        let repo: GitRepository = repo.into();
+        let entries = repo
+            .list_commit()
+            .unwrap_or_else(|e| panic!("list_commit in git repo {path:?} should not fail: {e:?}"));
+
+        assert_eq!(entries.len(), 1);
+        let item = &entries[0];
+        assert_eq!(item.author.email.to_string(), user_email);
+        assert_eq!(item.author.name.to_string(), user_name);
+        assert_eq!(item.committer.email.to_string(), user_email);
+        assert_eq!(item.committer.name.to_string(), user_name);
+        assert_eq!(item.message.to_string(), commit_message);
+        assert!(item.short_id.len() >= 7);
+        assert_eq!(item.time, now);
     }
 
     #[test]
     fn test_list_index() {
-        let sample = [
-            ("..", Default::default(), Default::default()),
-            ("..", "wit", String::from("wit/")),
-            ("..", "wit/", String::from("wit/")),
-            ("..", "wit/src/main.rs", String::from("wit/src/")),
+        let dir = tempdir().unwrap_or_else(|e| panic!("create tempdir failed: {e:?}"));
+        let path = dir.path();
+        let repo = initialize_git_repo(path);
+
+        let file_list = [
+            "dir01/dir11/file1",
+            "dir01/dir12/dir21/file1",
+            "dir01/dir12/dir22/file1",
+            "dir01/dir12/dir23/file1",
+            "dir01/dir12/dir23/file2",
+            "dir01/dir12/dir23/file3",
+            "dir01/dir12/file1",
+            "dir01/file1",
+            "dir02/dir11/file1",
+            "dir02/dir12/file1",
+            "dir02/file1",
+            "file1",
+            "file2",
+            "file3",
         ];
-        for (path, index, root) in sample.into_iter() {
-            let entries = GitRepository::open(path)
-                .unwrap_or_else(|e| panic!("{path:?} should be a valid git repo: {e:?}"))
-                .list_index(index)
-                .unwrap_or_else(|e| {
-                    panic!("list_index in git repo {path:?} should not fail: {e:?}")
-                });
+        for &file_name in file_list.iter() {
+            create_file_with_content(path.join(file_name), "");
+        }
+
+        set_git_head_to_branch(&repo, "main");
+        write_index_tree(&repo, &file_list.map(Path::new));
+
+        let repo: GitRepository = repo.into();
+        let sample = [
+            (Default::default(), 5, Default::default()),
+            ("dir01/dir12/dir23", 3, "dir01/dir12/dir23/"),
+            ("dir01/dir12/dir23/", 3, "dir01/dir12/dir23/"),
+            ("dir01/file1", 1, "dir01/"),
+        ];
+        for (index, count, root) in sample.into_iter() {
+            let entries = repo.list_index(index).unwrap_or_else(|e| {
+                panic!("list_index in git repo {path:?} should not fail: {e:?}")
+            });
+            assert_eq!(entries.len(), count);
             for item in entries.iter() {
-                println!("{item:?}");
                 let full_path = match item {
-                    GitIndex::Directory(e) => &e.path,
-                    GitIndex::Entry(e) => &e.path,
+                    GitIndex::Directory(d) => &d.path,
+                    GitIndex::Entry(e) => {
+                        assert_eq!(e.file_size, 0);
+                        &e.path
+                    }
                 };
                 if !index.is_empty() {
                     assert!(
-                        full_path.0.starts_with(&root),
+                        full_path.0.starts_with(root),
                         "unexpected root of index entry"
                     );
                 }
@@ -477,67 +642,139 @@ mod tests {
 
     #[test]
     fn test_list_reference() {
-        let sample = [".."];
-        for path in sample.into_iter() {
-            let entries = GitRepository::open("..")
-                .unwrap_or_else(|e| panic!("{path:?} should be a valid git repo: {e:?}"))
-                .list_reference()
-                .unwrap_or_else(|e| {
-                    panic!("list_reference in git repo {path:?} should not fail: {e:?}")
-                });
-            for item in entries.iter() {
-                println!("{item:?}");
-            }
-        }
+        let dir = tempdir().unwrap_or_else(|e| panic!("create tempdir failed: {e:?}"));
+        let path = dir.path();
+        let repo = initialize_git_repo(path);
+
+        let branch = "main";
+        set_git_head_to_branch(&repo, branch);
+        let tree_id = write_index_tree(&repo, &[]);
+        commit_with_signature(
+            &repo,
+            tree_id,
+            "Initial commit",
+            "wit",
+            "wit@example.com",
+            None,
+        );
+
+        let repo: GitRepository = repo.into();
+        let entries = repo.list_reference().unwrap_or_else(|e| {
+            panic!("list_reference in git repo {path:?} should not fail: {e:?}")
+        });
+
+        assert_eq!(entries.len(), 1);
+        let item = &entries[0];
+        assert!(matches!(item.kind, Some(model::GitReferenceType::Direct)));
+        assert_eq!(item.name.to_string(), format!("refs/heads/{branch}"));
+        assert_eq!(item.shorthand.to_string(), branch);
+        assert!(item.target_short.len() >= 7);
     }
 
     #[test]
     fn test_list_remote() {
-        let sample = [".."];
-        for path in sample.into_iter() {
-            let entries = GitRepository::open("..")
-                .unwrap_or_else(|e| panic!("{path:?} should be a valid git repo: {e:?}"))
-                .list_remote()
-                .unwrap_or_else(|e| {
-                    panic!("list_remote in git repo {path:?} should not fail: {e:?}")
-                });
-            for item in entries.iter() {
-                println!("{item:?}");
-            }
-        }
+        let dir = tempdir().unwrap_or_else(|e| panic!("create tempdir failed: {e:?}"));
+        let path = dir.path();
+        let repo = initialize_git_repo(path);
+
+        let remote_name = "example";
+        let remote_url = "https://example.com/git/wit.git";
+        repo.remote(remote_name, remote_url)
+            .unwrap_or_else(|e| panic!("add git remote failed: {e:?}"));
+
+        let repo: GitRepository = repo.into();
+        let entries = repo
+            .list_remote()
+            .unwrap_or_else(|e| panic!("list_remote in git repo {path:?} should not fail: {e:?}"));
+
+        assert_eq!(entries.len(), 1);
+        let item = &entries[0];
+        assert_eq!(item.name.to_string(), remote_name);
+        assert_eq!(item.url.to_string(), remote_url);
     }
 
     #[test]
     fn test_list_tag() {
-        let sample = [".."];
-        for path in sample.into_iter() {
-            let entries = GitRepository::open("..")
-                .unwrap_or_else(|e| panic!("{path:?} should be a valid git repo: {e:?}"))
-                .list_tag()
-                .unwrap_or_else(|e| panic!("list_tag in git repo {path:?} should not fail: {e:?}"));
-            for item in entries.iter() {
-                println!("{item:?}");
-            }
-        }
+        let dir = tempdir().unwrap_or_else(|e| panic!("create tempdir failed: {e:?}"));
+        let path = dir.path();
+        let repo = initialize_git_repo(path);
+
+        let tag = "v0.0.0";
+        set_git_head_to_branch(&repo, "main");
+        let tree_id = write_index_tree(&repo, &[]);
+        let commit_id = commit_with_signature(
+            &repo,
+            tree_id,
+            "Initial commit",
+            "wit",
+            "wit@example.com",
+            None,
+        );
+        create_tag_for_commit(&repo, tag, commit_id);
+
+        let repo: GitRepository = repo.into();
+        let entries = repo
+            .list_tag()
+            .unwrap_or_else(|e| panic!("list_tag in git repo {path:?} should not fail: {e:?}"));
+
+        assert_eq!(entries.len(), 1);
+        let item = &entries[0];
+        assert_eq!(item.name.to_string(), format!("refs/tags/{tag}"));
+        assert_eq!(item.shorthand.to_string(), tag);
+        assert!(item.target_short.len() >= 7);
     }
 
     #[test]
     fn test_list_tree() {
-        let sample = [
-            ("..", Default::default(), Default::default()),
-            ("..", "wit", String::from("wit/")),
-            ("..", "wit/", String::from("wit/")),
-            ("..", "wit/src/main.rs", String::from("wit/src/")),
+        let dir = tempdir().unwrap_or_else(|e| panic!("create tempdir failed: {e:?}"));
+        let path = dir.path();
+        let repo = initialize_git_repo(path);
+
+        let file_list = [
+            "dir01/dir11/file1",
+            "dir01/dir12/dir21/file1",
+            "dir01/dir12/dir22/file1",
+            "dir01/dir12/dir23/file1",
+            "dir01/dir12/dir23/file2",
+            "dir01/dir12/dir23/file3",
+            "dir01/dir12/file1",
+            "dir01/file1",
+            "dir02/dir11/file1",
+            "dir02/dir12/file1",
+            "dir02/file1",
+            "file1",
+            "file2",
+            "file3",
         ];
-        for (path, tree, root) in sample.into_iter() {
-            let entries = GitRepository::open(path)
-                .unwrap_or_else(|e| panic!("{path:?} should be a valid git repo: {e:?}"))
-                .list_tree(tree)
-                .unwrap_or_else(|e| {
-                    panic!("list_tree in git repo {path:?} should not fail: {e:?}")
-                });
+        for &file_name in file_list.iter() {
+            create_file_with_content(path.join(file_name), "");
+        }
+
+        set_git_head_to_branch(&repo, "main");
+        let tree_id = write_index_tree(&repo, &file_list.map(Path::new));
+        commit_with_signature(
+            &repo,
+            tree_id,
+            "Initial commit",
+            "wit",
+            "wit@example.com",
+            None,
+        );
+
+        let repo: GitRepository = repo.into();
+        let sample = [
+            (Default::default(), 5, Default::default()),
+            ("dir01/dir12/dir23", 3, "dir01/dir12/dir23/"),
+            ("dir01/dir12/dir23/", 3, "dir01/dir12/dir23/"),
+            ("dir01/file1", 1, "dir01/"),
+        ];
+        for (tree, count, root) in sample.into_iter() {
+            let entries = repo.list_tree(tree).unwrap_or_else(|e| {
+                panic!("list_tree in git repo {path:?} should not fail: {e:?}")
+            });
+            assert_eq!(entries.len(), count);
             for item in entries.iter() {
-                println!("{item:?}");
+                assert!(item.short_id.len() >= 7);
                 assert_eq!(item.root, root, "unexpected root of tree entry");
             }
         }
@@ -545,23 +782,22 @@ mod tests {
 
     #[test]
     fn test_open_repository() {
-        let sample = [(".", None), ("wit", Some(OsStr::new("wit")))];
-        for (path, exptcted) in sample.into_iter() {
-            GitRepository::open(path)
-                .map_err(|e| {
-                    if let GitError::RepositoryNotFound(p) = e {
-                        assert_eq!(p.file_name(), exptcted);
-                    } else {
-                        panic!("{e}");
-                    }
-                })
-                .expect_err("{path:?} should not be a valid git repo");
-        }
+        let dir = tempdir().unwrap_or_else(|e| panic!("create tempdir failed: {e:?}"));
+        let path = dir.path();
 
-        let sample = [".."];
-        for path in sample.into_iter() {
-            GitRepository::open(path)
-                .unwrap_or_else(|e| panic!("{path:?} should be a valid git repo: {e:?}"));
-        }
+        GitRepository::open(path)
+            .map_err(|e| {
+                if let GitError::RepositoryNotFound(p) = e {
+                    assert_eq!(p.file_name(), path.file_name());
+                } else {
+                    panic!("{e}");
+                }
+            })
+            .expect_err("{path:?} should not be a valid git repo");
+
+        initialize_git_repo(path);
+
+        GitRepository::open(path)
+            .unwrap_or_else(|e| panic!("{path:?} should be a valid git repo: {e:?}"));
     }
 }

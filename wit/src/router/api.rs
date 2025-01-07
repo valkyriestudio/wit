@@ -82,7 +82,7 @@ struct ErrorResponse {
 pub(crate) fn router() -> Router<AppState> {
     Router::new()
         .route("/statuses", get(gather_status))
-        .route("/blobs/:id", get(get_blob))
+        .route("/blobs/{id}", get(get_blob))
         .route("/branches", get(list_branch))
         .route("/commits", get(list_commit))
         .route("/indexes", get(list_index))
