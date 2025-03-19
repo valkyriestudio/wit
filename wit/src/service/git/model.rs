@@ -1,5 +1,5 @@
 use git2::{BranchType, ObjectType, Oid, ReferenceType, Signature, Status};
-use serde::{de::Visitor, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Visitor};
 use time::OffsetDateTime;
 
 #[derive(Debug, Serialize)]

@@ -6,9 +6,10 @@ mod health_check;
 
 use std::{iter::once, time::Duration};
 
-use axum::{http::header, Router};
+use axum::{Router, http::header};
 use tower::ServiceBuilder;
 use tower_http::{
+    LatencyUnit, ServiceBuilderExt,
     catch_panic::CatchPanicLayer,
     compression::CompressionLayer,
     cors::CorsLayer,
@@ -16,7 +17,6 @@ use tower_http::{
     sensitive_headers::{SetSensitiveRequestHeadersLayer, SetSensitiveResponseHeadersLayer},
     timeout::TimeoutLayer,
     trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer},
-    LatencyUnit, ServiceBuilderExt,
 };
 
 #[derive(Clone)]
