@@ -1,4 +1,4 @@
-use axum::{http::StatusCode, routing::get, Router};
+use axum::{Router, http::StatusCode, routing::get};
 
 pub(crate) fn router() -> Router {
     Router::new().route("/healthz", get(health))

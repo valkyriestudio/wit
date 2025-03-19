@@ -1,17 +1,17 @@
 use askama::Template;
 use axum::{
-    extract::{path::ErrorKind, rejection::PathRejection, Path, State},
+    Router,
+    extract::{Path, State, path::ErrorKind, rejection::PathRejection},
     response::{IntoResponse, Response},
     routing::get,
-    Router,
 };
 
 use crate::service::git::{
-    model::{GitBlob, GitBlobContent, GitIndex, GitObjectType, GitTree},
     GitError, GitRepository,
+    model::{GitBlob, GitBlobContent, GitIndex, GitObjectType, GitTree},
 };
 
-use super::{api::ApiError, AppState};
+use super::{AppState, api::ApiError};
 
 pub(crate) type RenderResult<T> = Result<T, RenderError>;
 
