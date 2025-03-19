@@ -1,4 +1,4 @@
-FROM docker.io/library/rust:1.83 AS server
+FROM docker.io/library/rust:1.85 AS server
 WORKDIR /app
 COPY .rustfmt.toml Cargo.lock Cargo.toml ./
 COPY wit ./wit
