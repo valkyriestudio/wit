@@ -1,18 +1,18 @@
 use axum::{
-    extract::{rejection::PathRejection, Path, State},
+    Json, Router,
+    extract::{Path, State, rejection::PathRejection},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::get,
-    Json, Router,
 };
 use serde::Serialize;
 
 use crate::service::git::{
+    GitError, GitRepository,
     model::{
         GitBlob, GitBranch, GitCommit, GitIndex, GitOid, GitReference, GitRemote, GitStatus,
         GitTag, GitTree,
     },
-    GitError, GitRepository,
 };
 
 use super::AppState;

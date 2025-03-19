@@ -6,7 +6,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use axum::serve::{Listener, ListenerExt};
 use mimalloc::MiMalloc;
 use tracing::level_filters::LevelFilter;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;

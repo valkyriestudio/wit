@@ -367,7 +367,7 @@ impl GitRepository {
 #[cfg(test)]
 mod tests {
     use std::{
-        fs::{create_dir_all, File},
+        fs::{File, create_dir_all},
         io::Write,
     };
 
