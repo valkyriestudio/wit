@@ -205,7 +205,7 @@ impl GitRepository {
             name: path
                 .0
                 .split('/')
-                .last()
+                .next_back()
                 .map(str::to_string)
                 .unwrap_or_default()
                 .into(),
@@ -338,11 +338,10 @@ impl GitRepository {
                 }
                 return TreeWalkResult::Abort;
             }
-            if let Some(ObjectType::Tree) = entry.kind() {
-                if !path.starts_with(&format!("{curr}/")) {
+            if let Some(ObjectType::Tree) = entry.kind()
+                && !path.starts_with(&format!("{curr}/")) {
                     return TreeWalkResult::Skip;
                 }
-            }
             TreeWalkResult::Ok
         })
         .unwrap_or_default();

@@ -6,6 +6,7 @@
 {%- block content %}
     {%- let base = "/git/tree" %}
     {%- call navigate::display(base, segments) %}
+    {%- endcall %}
     <div class="divider my-2"></div>
     {%- match data %}
     {%- when TreeView::Tree with (tree) %}
@@ -18,5 +19,6 @@
     {%- endfor %}
     {%- when TreeView::Blob with (blob) %}
       {%- call blob_view::display(blob) %}
+      {%- endcall %}
     {%- endmatch %}
 {%- endblock %}
