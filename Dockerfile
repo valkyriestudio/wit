@@ -1,4 +1,4 @@
-FROM docker.io/library/rust:1.85 AS server
+FROM docker.io/library/rust:1.94 AS server
 WORKDIR /app
 COPY .rustfmt.toml Cargo.lock Cargo.toml ./
 COPY wit ./wit
@@ -6,15 +6,15 @@ RUN cargo fetch
 RUN cargo test \
     && cargo build --release
 
-FROM docker.io/library/node:22 AS assets
+FROM docker.io/library/node:24 AS assets
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY wit ./wit
-RUN corepack enable \
+RUN corepack enable pnpm \
     && pnpm install --frozen-lockfile \
     && pnpm build
 
-FROM docker.io/library/debian:12-slim AS base
+FROM docker.io/library/debian:13-slim AS base
 RUN groupadd --gid 1000 wit \
     && useradd --uid 1000 --gid wit --shell /bin/bash --create-home wit
 USER wit

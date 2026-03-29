@@ -2,7 +2,8 @@ use askama::Template;
 use axum::{
     Router,
     extract::{Path, State, path::ErrorKind, rejection::PathRejection},
-    response::{IntoResponse, Response},
+    http::StatusCode,
+    response::{Html, IntoResponse, Response},
     routing::get,
 };
 
@@ -18,17 +19,25 @@ pub(crate) type RenderResult<T> = Result<T, RenderError>;
 #[derive(Debug)]
 pub(crate) enum RenderError {
     ApiError(ApiError),
+    TemplateError(askama::Error),
 }
 
 impl std::fmt::Display for RenderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RenderError::ApiError(e) => write!(f, "ApiError: {e}"),
+            RenderError::TemplateError(e) => write!(f, "TemplateError: {e}"),
         }
     }
 }
 
 impl std::error::Error for RenderError {}
+
+impl From<askama::Error> for RenderError {
+    fn from(e: askama::Error) -> Self {
+        RenderError::TemplateError(e)
+    }
+}
 
 impl From<GitError> for RenderError {
     fn from(e: GitError) -> Self {
@@ -42,19 +51,32 @@ impl From<PathRejection> for RenderError {
     }
 }
 
+impl From<RenderError> for (StatusCode, String) {
+    fn from(e: RenderError) -> Self {
+        match e {
+            RenderError::ApiError(e) => e.into(),
+            RenderError::TemplateError(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Template error: {e}"),
+            ),
+        }
+    }
+}
+
 impl IntoResponse for RenderError {
     fn into_response(self) -> Response {
-        let (status, message) = match self {
-            RenderError::ApiError(e) => e.into(),
+        let (status, message) = self.into();
+        let template = ErrorTemplate {
+            code: status.into(),
+            message,
         };
-        (
-            status,
-            ErrorTemplate {
-                code: status.into(),
-                message,
-            },
-        )
-            .into_response()
+        match template.render() {
+            Ok(body) => (status, Html(body)).into_response(),
+            Err(e) => {
+                let resp: (StatusCode, String) = RenderError::TemplateError(e).into();
+                resp.into_response()
+            }
+        }
     }
 }
 
@@ -102,14 +124,14 @@ enum TreeView {
     Tree(Vec<GitTree>),
 }
 
-async fn hello() -> RenderResult<HelloTemplate> {
-    Ok(HelloTemplate {})
+async fn hello() -> RenderResult<impl IntoResponse> {
+    Ok(Html(HelloTemplate {}.render()?))
 }
 
 async fn list_index(
     State(state): State<AppState>,
     path: Result<Path<String>, PathRejection>,
-) -> RenderResult<RepoIndexTemplate> {
+) -> RenderResult<impl IntoResponse> {
     let path = path.or_else(map_empty_segment_to_default)?.0;
     let repo = GitRepository::open(state.repo_root)?;
     let mut index = repo.list_index(&path)?;
@@ -128,23 +150,29 @@ async fn list_index(
             let entry = index.swap_remove(0);
             if let GitIndex::Entry(e) = entry {
                 let blob = repo.get_blob(e.id)?;
-                return Ok(RepoIndexTemplate {
-                    data: IndexView::Blob(blob),
-                    segments,
-                });
+                return Ok(Html(
+                    RepoIndexTemplate {
+                        data: IndexView::Blob(blob),
+                        segments,
+                    }
+                    .render()?,
+                ));
             }
         }
     }
-    Ok(RepoIndexTemplate {
-        data: IndexView::Index(index),
-        segments,
-    })
+    Ok(Html(
+        RepoIndexTemplate {
+            data: IndexView::Index(index),
+            segments,
+        }
+        .render()?,
+    ))
 }
 
 async fn list_tree(
     State(state): State<AppState>,
     path: Result<Path<String>, PathRejection>,
-) -> RenderResult<RepoTreeTemplate> {
+) -> RenderResult<impl IntoResponse> {
     let path = path.or_else(map_empty_segment_to_default)?.0;
     let repo = GitRepository::open(state.repo_root)?;
     let mut tree = repo.list_tree(&path)?;
@@ -158,16 +186,22 @@ async fn list_tree(
         if format!("{}{}", entry.root, entry.name).eq(&path) {
             let entry = tree.swap_remove(0);
             let blob = repo.get_blob(entry.id)?;
-            return Ok(RepoTreeTemplate {
-                data: TreeView::Blob(blob),
-                segments,
-            });
+            return Ok(Html(
+                RepoTreeTemplate {
+                    data: TreeView::Blob(blob),
+                    segments,
+                }
+                .render()?,
+            ));
         }
     }
-    Ok(RepoTreeTemplate {
-        data: TreeView::Tree(tree),
-        segments,
-    })
+    Ok(Html(
+        RepoTreeTemplate {
+            data: TreeView::Tree(tree),
+            segments,
+        }
+        .render()?,
+    ))
 }
 
 fn map_empty_segment_to_default(r: PathRejection) -> Result<Path<String>, PathRejection> {

@@ -6,7 +6,10 @@ mod health_check;
 
 use std::{iter::once, time::Duration};
 
-use axum::{Router, http::header};
+use axum::{
+    Router,
+    http::{StatusCode, header},
+};
 use tower::ServiceBuilder;
 use tower_http::{
     LatencyUnit, ServiceBuilderExt,
@@ -57,7 +60,10 @@ pub(crate) fn create_app() -> Router {
                 )))
                 .layer(CompressionLayer::new())
                 .layer(CorsLayer::permissive())
-                .layer(TimeoutLayer::new(Duration::from_secs(30))),
+                .layer(TimeoutLayer::with_status_code(
+                    StatusCode::REQUEST_TIMEOUT,
+                    Duration::from_secs(30),
+                )),
         )
         .merge(assets::router())
         .merge(front::router())

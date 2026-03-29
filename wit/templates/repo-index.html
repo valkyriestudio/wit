@@ -6,6 +6,7 @@
 {%- block content %}
     {%- let base = "/git/index" %}
     {%- call navigate::display(base, segments) %}
+    {%- endcall %}
     <div class="divider my-2"></div>
     {%- match data %}
     {%- when IndexView::Index with (index) %}
@@ -19,5 +20,6 @@
     {%- endfor %}
     {%- when IndexView::Blob with (blob) %}
       {%- call blob_view::display(blob) %}
+      {%- endcall %}
     {%- endmatch %}
 {%- endblock %}
